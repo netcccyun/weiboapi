@@ -58,6 +58,17 @@ $opentype = explode(',', $conf['opentype']);
 </div>
 </div>
 <?php
+}elseif($mod=='mailtest'){
+	$mail_name = $conf['mail_recv']?$conf['mail_recv']:$conf['mail_name'];
+	if(!empty($mail_name)){
+	$result=send_mail($mail_name,'邮件发送测试。','这是一封测试邮件！<br/><br/>来自：'.$siteurl);
+	if($result==1)
+		showmsg('邮件发送成功！',1);
+	else
+		showmsg('邮件发送失败！'.$result,3);
+	}
+	else
+		showmsg('您还未设置邮箱！',3);
 }elseif($mod=='notice'){
 ?>
 <div class="panel panel-primary">
