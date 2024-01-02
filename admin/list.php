@@ -90,7 +90,7 @@ echo '</ul>';
 ?>
     </div>
   </div>
-<script src="//cdn.staticfile.org/layer/3.1.1/layer.min.js"></script>
+<script src="<?php echo $cdnpublic?>layer/3.1.1/layer.min.js"></script>
 <script>
 function checkAccount(id){
 	var ii = layer.load(2, {shade:[0.1,'#fff']});

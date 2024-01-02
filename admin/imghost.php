@@ -51,8 +51,8 @@ if($islogin==1){}else exit("<script language='javascript'>window.location.href='
     </div>
 </div>
 </div>
-<script src="//cdn.staticfile.org/layer/3.5.1/layer.js"></script>
-<script src="//cdn.staticfile.org/vue/2.6.14/vue.min.js"></script>
+<script src="<?php echo $cdnpublic?>layer/3.5.1/layer.js"></script>
+<script src="<?php echo $cdnpublic?>vue/2.6.14/vue.min.js"></script>
 <script>
     new Vue({
         el: '#app',

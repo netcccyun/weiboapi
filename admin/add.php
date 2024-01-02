@@ -104,6 +104,6 @@ if($id){
 <script src="./assets/js/encoder.js"></script>
 <script src="./assets/js/login_sms.js"></script>
 <?php }elseif($mod == 'qq'){?>
-<script src="//cdn.staticfile.org/jquery.qrcode/1.0/jquery.qrcode.min.js"></script>
+<script src="<?php echo $cdnpublic?>jquery.qrcode/1.0/jquery.qrcode.min.js"></script>
 <script src="./assets/js/login_qq.js"></script>
 <?php }?>
