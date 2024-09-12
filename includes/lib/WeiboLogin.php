@@ -3,8 +3,14 @@ namespace lib;
 
 class WeiboLogin
 {
-	private $referrer = 'https://weibo.com/login.php';
+	private $referrer = 'https://passport.weibo.com/sso/signin?entry=miniblog&source=miniblog&disp=popup&url=https%3A%2F%2Fweibo.com%2Fnewlogin%3Ftabtype%3Dweibo%26gid%3D102803%26openLoginLayer%3D0%26url%3Dhttps%253A%252F%252Fweibo.com%252F';
+	private $useragent;
 	private $errmsg;
+
+	public function __construct()
+	{
+		$this->useragent = $_SERVER['HTTP_USER_AGENT'];
+	}
 
 	private function jsonp_decode($jsonp, $assoc = false)
 	{
@@ -24,9 +30,9 @@ class WeiboLogin
 	//获取扫码登录二维码
 	public function getqrcode()
 	{
-		$url = 'https://login.sina.com.cn/sso/qrcode/image?entry=weibo&size=180&callback=STK_'.time().'0000';
+		$url = 'https://passport.weibo.com/sso/v2/qrcode/image?entry=miniblog&size=180';
 		$data = $this->get_curl($url, 0, $this->referrer);
-		$arr = $this->jsonp_decode($data, true);
+		$arr = json_decode($data, true);
 		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
 			$imgurl = $arr['data']['image'];
 			parse_str(parse_url($imgurl, PHP_URL_QUERY), $query_arr);
@@ -43,12 +49,11 @@ class WeiboLogin
 	public function qrlogin($qrid)
 	{
 		if (empty($qrid)) return array('code' => -1, 'msg' => 'qrid不能为空');
-		$url = 'https://login.sina.com.cn/sso/qrcode/check?entry=weibo&qrid='.$qrid.'&callback=STK_'.time().'0000';
+		$url = 'https://passport.weibo.com/sso/v2/qrcode/check?entry=miniblog&source=miniblog&url=https%3A%2F%2Fweibo.com%2F&qrid='.$qrid.'&disp=popup';
 		$data = $this->get_curl($url, 0, $this->referrer);
-		$arr = $this->jsonp_decode($data, true);
+		$arr = json_decode($data, true);
 		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
-			$alt = $arr['data']['alt'];
-			$login_url = 'https://login.sina.com.cn/sso/login.php?entry=weibo&returntype=TEXT&crossdomain=1&cdult=3&domain=weibo.com&alt='.urlencode($alt).'&savestate=30';
+			$login_url = $arr['data']['url'];
 			$result = $this->login_getcookie($login_url);
 			return $result;
 		} elseif ($arr['retcode'] == 50114001) {
@@ -67,137 +72,160 @@ class WeiboLogin
 	//通用登录后获取cookie
 	private function login_getcookie($url)
 	{
-		$url = str_replace('returntype=CROSSDOMAIN_BY_LOCATION&', 'returntype=TEXT&', $url);
-		$url = str_replace('returntype=META&', 'returntype=TEXT&', $url);
-		$data = $this->get_curl($url, 0, $this->referrer, 0, 1, 1);
-		$arr = json_decode($data['body'], true);
-		if (isset($arr['retcode']) && $arr['retcode'] == 0) {
-			$cookie=[];
-			preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
-			foreach ($matchs[1] as $val) {
-				if(strpos($val, '=deleted') || substr($val,-1)=='=') continue;
-				$key = substr($val, 0, strpos($val, '='));
-				$cookie[$key]=substr($val, strpos($val, '=')+1);
+		$host = parse_url($url, PHP_URL_HOST);
+		$data = $this->get_curl($url, 0, $this->referrer, 0, 0, 1);
+		if(preg_match("/Location: (.*?)\r\n/i", $data['header'], $match)){
+			$jump_url = $match[1];
+			if($host == 'login.sina.com.cn'){
+				$cookie=[];
+				preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
+				foreach ($matchs[1] as $val) {
+					if(strpos($val, '=deleted') || substr($val,-1)=='=') continue;
+					$key = substr($val, 0, strpos($val, '='));
+					$cookie[$key]=substr($val, strpos($val, '=')+1);
+				}
+	
+				$wbcookie = $this->get_sso_cookie($jump_url);
+			}else{
+				$wbcookie=[];
+				preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
+				foreach ($matchs[1] as $val) {
+					if(strpos($val, '=deleted') || substr($val,-1)=='=') continue;
+					$key = substr($val, 0, strpos($val, '='));
+					$wbcookie[$key]=substr($val, strpos($val, '=')+1);
+				}
+	
+				$cookie = $this->get_sso_cookie($jump_url);
 			}
 
-			if(isset($arr['ticket'])){
-				$ticket = $arr['ticket'];
-			}elseif(isset($arr['crossDomainUrlList'])){
-				foreach($arr['crossDomainUrlList'] as $row){
-					if(strpos($row, '//passport.weibo.com/')){
-						parse_str(parse_url($row, PHP_URL_QUERY), $queryArr);
-						$ticket = $queryArr['ticket'];
-						break;
-					}
-				}
-			}
-			if(!$ticket){
-				return array('code' => -1, 'msg' => '登录成功，获取微博ticket失败');
-			}
-			$wbcookie = $this->weibosso($ticket);
-			if(!$wbcookie){
-				return array('code' => -1, 'msg' => $this->errmsg);
-			}
-			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $arr['uid'], 'nick' => $arr['nick']);
-		} elseif (isset($arr['retcode'])) {
-			return array('code' => -1, 'msg' => '登录成功，获取用户信息失败（'.$arr['retcode'].'）');
+			$info = $this->get_user_info($wbcookie);
+
+			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $info['user']['idstr'], 'nick' => $info['user']['screen_name']);
 		} else {
 			return array('code' => -1, 'msg' => '登录成功，获取用户信息失败');
 		}
 	}
 
-	//获取预登录数据
-	public function prelogin($user)
-	{
-		$url = 'https://login.sina.com.cn/sso/prelogin.php?entry=weibo&callback=sinaSSOController.preloginCallBack&su='.urlencode(base64_encode($user)).'&rsakt=mod&checkpin=1&client=ssologin.js(v1.4.19)';
-		$data = $this->get_curl($url, 0, $this->referrer);
-		$arr = $this->jsonp_decode($data, true);
-		if (isset($arr['retcode']) && $arr['retcode'] == 0 && isset($arr['pcid'])) {
-			if(isset($arr['smsurl'])){
-				parse_str(parse_url($arr['smsurl'], PHP_URL_QUERY), $query_arr);
-				$arr['smstoken'] = $query_arr['s'];
-			}
-			return array('code' => 0, 'data' => $arr);
-		}elseif(isset($arr['msg'])){
-			return array('code' => -1, 'msg' => '获取预登录数据失败，'.$arr['msg']);
-		}else{
-			return array('code' => -1, 'msg' => '获取预登录数据失败');
+	private function get_user_info($wbcookie){
+		$cookie_str = '';
+		foreach($wbcookie as $key=>$value){
+			$cookie_str .= $key.'='.$value.'; ';
 		}
+		$this->useragent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.95 Safari/537.36';
+		$data = $this->get_curl('https://weibo.com/', 0, 0, $cookie_str);
+		preg_match('!window\.\$CONFIG = (.*?);\}!',$data,$match);
+		return json_decode($match[1], true);
 	}
 
-	//获取验证码
-	public function getpin($pcid)
+	private function get_sso_cookie($jump_url){
+		$data = $this->get_curl($jump_url, 0, $this->referrer, 0, 0, 1);
+		$cookie=[];
+		preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
+		foreach ($matchs[1] as $val) {
+			if(strpos($val, '=deleted') || substr($val,-1)=='=') continue;
+			$key = substr($val, 0, strpos($val, '='));
+			$cookie[$key]=substr($val, strpos($val, '=')+1);
+		}
+		return $cookie;
+	}
+
+	//获取登录配置
+	public function getconfig()
 	{
-		if (empty($pcid)) return '';
-		$url = 'https://login.sina.com.cn/cgi/pin.php?r='.rand(11111111,99999999).'&s=0&p='.urlencode($pcid);
-		$cookie = 'ULOGIN_IMG='.$pcid;
-		return $this->get_curl($url, 0, $this->referrer, $cookie);
+		$data = $this->get_curl($this->referrer, 0, 0, 0, 0, 1);
+		if(preg_match('/X-CSRF-TOKEN=(.*?);/', $data['header'], $match)){
+			$csrf_token = $match[1];
+		}else{
+			return array('code' => -1, 'msg' => 'X-CSRF-TOKEN获取失败');
+		}
+		$url = 'https://passport.weibo.com/sso/v2/web/config';
+		$post = 'entry=miniblog&source=miniblog';
+		$cookie = 'X-CSRF-TOKEN='.$csrf_token;
+		$headers = ['X-CSRF-TOKEN: '.$csrf_token, 'X-Requested-With: XMLHttpRequest'];
+		$data = $this->get_curl($url, $post, $this->referrer, $cookie, $headers);
+		$arr = json_decode($data, true);
+		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
+			return array('code' => 0, 'data' => $arr['data'], 'csrf_token' => $csrf_token);
+		}elseif(isset($arr['msg'])){
+			return array('code' => -1, 'msg' => '获取登录配置失败，'.$arr['msg']);
+		}else{
+			return array('code' => -1, 'msg' => '获取登录配置失败');
+		}
 	}
 
 	//密码登录
-	public function login($user, $pwd, $servertime, $nonce, $rsakv, $pcid, $door)
+	public function login($user, $pwd, $rsakv, $cid, $csrf_token)
 	{
-		$url = 'https://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.19)';
+		$url = 'https://passport.weibo.com/sso/v2/login';
 		$param = [
-			'entry' => 'weibo',
-			'gateway' => '1',
-			'from' => '',
-			'savestate' => '7',
-			'qrcode_flag' => 'false',
-			'useticket' => '1',
-			'vsnf' => '1',
-			'su' => base64_encode($user),
-			'service' => 'miniblog',
-			'servertime' => $servertime,
-			'nonce' => $nonce,
-			'pwencode' => 'rsa2',
+			'entry' => 'miniblog',
+			'source' => 'miniblog',
+			'type' => '1',
+			'url' => 'https://weibo.com/newlogin?tabtype=weibo&gid=102803&openLoginLayer=0&url=https%3A%2F%2Fweibo.com%2F',
+			'username' => $user,
+			'pass' => $pwd,
+			'cid' => $cid,
+			'pwencode' => 'rsa',
 			'rsakv' => $rsakv,
-			'sp' => $pwd,
-			'sr' => '1536*960',
-			'encoding' => 'UTF-8',
-			'url' => 'https://weibo.com/ajaxlogin.php?framelogin=1&callback=parent.sinaSSOController.feedBackUrlCallBack',
-			'returntype' => 'TEXT'
+			'disp' => 'popup',
 		];
-		if(!empty($pcid)){
-			$param += [
-				'pcid' => $pcid,
-				'door' => $door
-			];
-			$cookie = 'ULOGIN_IMG='.$pcid;
+		if(empty($cid)){
+			unset($param['cid']);
 		}
-		$data = $this->get_curl($url, http_build_query($param), $this->referrer, $cookie, 1, 1);
+		$cookie = 'X-CSRF-TOKEN='.$csrf_token;
+		$headers = ['X-CSRF-TOKEN: '.$csrf_token, 'X-Requested-With: XMLHttpRequest'];
+		$data = $this->get_curl($url, http_build_query($param), $this->referrer, $cookie, $headers, 1);
 		$arr = json_decode($data['body'], true);
-		if (isset($arr['retcode']) && $arr['retcode'] == 0) {
-			$cookie=[];
+		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
+			$wbcookie=[];
 			preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
 			foreach ($matchs[1] as $val) {
 				if(strpos($val, '=deleted') || substr($val,-1)=='=') continue;
 				$key = substr($val, 0, strpos($val, '='));
-				$cookie[$key]=substr($val, strpos($val, '=')+1);
+				$wbcookie[$key]=substr($val, strpos($val, '=')+1);
 			}
-			$ticket = $arr['ticket'];
-			$wbcookie = $this->weibosso($ticket);
-			if(!$wbcookie){
-				return array('code' => -1, 'msg' => $this->errmsg);
-			}
-			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $arr['uid'], 'nick' => $arr['nick']);
-		}elseif($arr['retcode'] == 2071 && isset($arr['protection_url'])){
-			$protection_url = urldecode($arr['protection_url']);
+			
+			$jump_url = $arr['data']['location'];
+			$cookie = $this->get_sso_cookie($jump_url);
+
+			$info = $this->get_user_info($wbcookie);
+
+			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $info['user']['idstr'], 'nick' => $info['user']['screen_name']);
+		}elseif($arr['retcode'] == 2071 && isset($arr['data']['location'])){
+			$protection_url = $arr['data']['location'];
 			parse_str(parse_url($protection_url, PHP_URL_QUERY), $query_arr);
 			$token = $query_arr['token'];
 			$data2 = $this->get_curl($protection_url, 0, $this->referrer);
 			preg_match('!<input name="encrypt_mobile".*?value="(.*?)".*?<span>(.*?)</span>!s', $data2, $match);
 			if($match[0]){
-				return array('code' => 1, 'msg' => $arr['reason'], 'token'=>$token, 'mobile'=>$match[2], 'encrypt_mobile'=>$match[1]);
+				return array('code' => 1, 'msg' => $arr['msg'], 'token'=>$token, 'mobile'=>$match[2], 'encrypt_mobile'=>$match[1]);
 			}else{
-				return array('code' => -1, 'msg' => $arr['reason']);
+				return array('code' => -1, 'msg' => '手机验证信息获取失败 '.$arr['msg']);
 			}
-		}elseif($arr['retcode'] == 4049){
-			return array('code' => 2, 'msg' => $arr['reason']);
-		}elseif(isset($arr['reason'])){
-			return array('code' => -1, 'msg' => $arr['reason']);
+		}elseif($arr['retcode'] == 4049 || $arr['retcode'] == 2120){
+			return array('code' => 2, 'msg' => $arr['msg'], 'cid' => $arr['data']['mfa_id']);
+		}elseif(isset($arr['msg'])){
+			return array('code' => -1, 'msg' => $arr['msg']);
 		}else{
 			return array('code' => -1, 'msg' => '登录失败，原因未知');
+		}
+	}
+
+	public function verifycaptcha($key, $lot_number, $captcha_output, $pass_token, $gen_time){
+		$url = 'https://security.weibo.com/captcha/gt';
+		$param = [
+			'key' => $key,
+			'lot_number' => $lot_number,
+			'captcha_output' => $captcha_output,
+			'pass_token' => $pass_token,
+			'gen_time' => $gen_time,
+		];
+		$data = $this->get_curl($url.'?'.http_build_query($param), 0, $this->referrer);
+		$arr = json_decode($data, true);
+		if (isset($arr['retcode']) && $arr['retcode'] == 100000) {
+			return array('code' => 0);
+		}else{
+			return array('code' => -1, 'msg' => '验证码验证失败 '.$arr['msg']);
 		}
 	}
 
@@ -236,13 +264,21 @@ class WeiboLogin
 
 
 	//短信登录-发送手机验证码
-	public function sendsms($mobile, $token)
+	public function sendsms($mobile, $cid, $csrf_token)
 	{
-		$url = 'https://login.sina.com.cn/sso/msglogin?entry=weibo&mobile='.$mobile.'&s='.$token.'&_t=1';
-		$data = $this->get_curl($url, 0, $this->referrer);
+		$url = 'https://passport.weibo.com/sso/v2/sms/send';
+		$post = 'entry=miniblog&mobile='.$mobile;
+		if(!empty($cid)){
+			$post .= '&mfa_id='.$cid;
+		}
+		$cookie = 'X-CSRF-TOKEN='.$csrf_token;
+		$headers = ['X-CSRF-TOKEN: '.$csrf_token, 'X-Requested-With: XMLHttpRequest'];
+		$data = $this->get_curl($url, $post, $this->referrer, $cookie, $headers);
 		$arr = json_decode($data, true);
 		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
 			return array('code' => 0, 'msg' => 'succ');
+		} elseif (isset($arr['retcode']) && $arr['retcode'] == 0) {
+			return array('code' => 2, 'msg' => $arr['msg'], 'cid' => $arr['data']['mfa_id']);
 		} elseif (isset($arr['msg'])) {
 			return array('code' => -1, 'msg' => $arr['msg']);
 		} else {
@@ -251,49 +287,39 @@ class WeiboLogin
 	}
 
 	//手机验证码登录
-	public function smslogin($user, $pwd, $servertime, $nonce, $rsakv)
+	public function smslogin($user, $code, $csrf_token)
 	{
-		$url = 'https://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.19)';
+		$url = 'https://passport.weibo.com/sso/v2/login';
 		$param = [
-			'entry' => 'weibo',
-			'gateway' => '1',
-			'from' => '',
-			'savestate' => '7',
-			'qrcode_flag' => 'false',
-			'useticket' => '1',
-			'cfrom' => '1',
-			'vsnf' => '1',
-			'su' => base64_encode($user),
-			'service' => 'miniblog',
-			'servertime' => $servertime,
-			'nonce' => $nonce,
-			'pwencode' => 'rsa2',
-			'rsakv' => $rsakv,
-			'sp' => $pwd,
-			'sr' => '1536*960',
-			'encoding' => 'UTF-8',
-			'url' => 'https://weibo.com/ajaxlogin.php?framelogin=1&callback=parent.sinaSSOController.feedBackUrlCallBack',
-			'returntype' => 'TEXT'
+			'entry' => 'miniblog',
+			'source' => 'miniblog',
+			'type' => '2',
+			'url' => 'https://weibo.com/newlogin?tabtype=weibo&gid=102803&openLoginLayer=0&url=https%3A%2F%2Fweibo.com%2F',
+			'username' => $user,
+			'scode' => $code,
+			'disp' => 'popup',
 		];
-		$data = $this->get_curl($url, http_build_query($param), $this->referrer, 0, 1, 1);
+		$cookie = 'X-CSRF-TOKEN='.$csrf_token;
+		$headers = ['X-CSRF-TOKEN: '.$csrf_token, 'X-Requested-With: XMLHttpRequest'];
+		$data = $this->get_curl($url, http_build_query($param), $this->referrer, $cookie, $headers, 1);
 		$arr = json_decode($data['body'], true);
-		if (isset($arr['retcode']) && $arr['retcode'] == 0) {
-			$cookie=[];
+		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
+			$wbcookie=[];
 			preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
 			foreach ($matchs[1] as $val) {
 				if(strpos($val, '=deleted') || substr($val,-1)=='=') continue;
 				$key = substr($val, 0, strpos($val, '='));
-				$cookie[$key]=substr($val, strpos($val, '=')+1);
+				$wbcookie[$key]=substr($val, strpos($val, '=')+1);
 			}
-			$ticket = $arr['ticket'];
-			$wbcookie = $this->weibosso($ticket);
-			if(!$wbcookie){
-				return array('code' => -1, 'msg' => $this->errmsg);
-			}
-			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $arr['uid'], 'nick' => $arr['nick']);
-		}elseif(isset($arr['reason'])){
-			if($arr['retcode'] == 101) $arr['reason']='验证码输入有误';
-			return array('code' => -1, 'msg' => $arr['reason']);
+			
+			$jump_url = $arr['data']['location'];
+			$cookie = $this->get_sso_cookie($jump_url);
+
+			$info = $this->get_user_info($wbcookie);
+
+			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $info['user']['idstr'], 'nick' => $info['user']['screen_name']);
+		}elseif(isset($arr['msg'])){
+			return array('code' => -1, 'msg' => $arr['msg']);
 		}else{
 			return array('code' => -1, 'msg' => '登录失败，原因未知');
 		}
@@ -305,7 +331,8 @@ class WeiboLogin
 			$cookies .= $key.'='.$value.'; ';
 		}
 		$url = 'https://login.sina.com.cn/sso/login.php?url=https%3A%2F%2Fwww.weibo.com%2F&_rand='.time().'&gateway=1&service=miniblog&entry=miniblog&useticket=1&returntype=TEXT&sudaref=&_client_version=0.6.33';
-		$data = $this->get_curl($url, 0, $this->referrer, $cookies, 1, 1);
+		$data = $this->get_curl($url, 0, $this->referrer, $cookies, 0, 1);
+		print_r($data);
 		$arr = json_decode($data['body'], true);
 		if (isset($arr['retcode']) && $arr['retcode'] == 0) {
 			preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
@@ -330,7 +357,7 @@ class WeiboLogin
 	private function weibosso($ticket){
 		$ssosavestate = time()+2592000;
 		$url = 'https://passport.weibo.com/wbsso/login?ticket='.$ticket.'&ssosavestate='.$ssosavestate.'&callback=sinaSSOController.doCrossDomainCallBack&scriptId=ssoscript0&client=ssologin.js(v1.4.2)';
-		$data = $this->get_curl($url, 0, $this->referrer, 0, 1, 1);
+		$data = $this->get_curl($url, 0, $this->referrer, 0, 0, 1);
 		$arr = $this->jsonp_decode($data['body'], true);
 		if (isset($arr['result']) && $arr['result']==true) {
 			preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
@@ -354,7 +381,7 @@ class WeiboLogin
 		//$url='https://ssl.ptlogin2.qq.com/ptqrshow?appid=716027609&e=2&l=M&s=4&d=72&v=4&t=0.2616844'.time().'&daid=383&pt_3rd_aid=101019034';
 		$url='https://xui.ptlogin2.qq.com/ssl/ptqrshow?s=8&e=0&appid=716027609&type=1&t=0.492909'.time().'&daid=383&pt_3rd_aid=101019034';
 		$refer='https://xui.ptlogin2.qq.com/cgi-bin/xlogin?appid=716027609&daid=383&style=33&login_text=%E7%99%BB%E5%BD%95&hide_title_bar=1&hide_border=1&target=self&s_url=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump&pt_3rd_aid=101019034&pt_feedback_link=https%3A%2F%2Fsupport.qq.com%2Fproducts%2F77942%3FcustomInfo%3Dweibo.com.appid101019034&theme=2&verify_theme=';
-		$data=$this->get_curl($url,0,$refer,0,1,1);
+		$data=$this->get_curl($url,0,$refer,0,0,1);
 		preg_match('/qrsig=(.*?);/',$data['header'],$match);
 		if($qrsig=$match[1]){
 			$arr = $this->jsonp_decode($data['body'], true);
@@ -375,24 +402,24 @@ class WeiboLogin
 			if($r[0]==0){
 				preg_match('/uin=(\d+)&/',$ret,$uin);
 				$uin=$uin[1];
-				$data=$this->get_curl($r[2],0,$refer,0,1);
+				$data=$this->get_curl($r[2],0,$refer,0,0,1);
 				if($data) {
 					$cookie='';
-					preg_match_all('/Set-Cookie: (.*?);/i',$data,$matchs);
+					preg_match_all('/Set-Cookie: (.*?);/i',$data['header'],$matchs);
 					foreach ($matchs[1] as $val) {
 						if(substr($val,-1)=='=')continue;
 						$cookie.=$val.'; ';
 					}
 					preg_match('/p_skey=(.*?);/',$cookie,$pskey);
 					$cookie = substr($cookie,0,-2);
-					$data=$this->get_curl('https://passport.weibo.com/othersitebind/authorize?entry=miniblog&site=qq',0,0,0,1);
-					preg_match('/crossidccode=(.*?);/',$data,$match);
-					if($crossidccode = $match[1]){
+					$data=$this->get_curl('https://passport.weibo.com/othersitebind/authorize?entry=miniblog&site=qq',0,0,0,0,1);
+					if(preg_match('/crossidccode=(.*?);/',$data['header'],$match)){
+						$crossidccode = $match[1];
 						$url = 'https://graph.qq.com/oauth2.0/authorize';
 						$post = 'response_type=code&client_id=101019034&redirect_uri=https%3A%2F%2Fpassport.weibo.com%2Fothersitebind%2Fbind%3Fsite%3Dqq%26state%3D'.$crossidccode.'%26bentry%3Dminiblog%26wl%3D&scope=get_info%2Cget_user_info&state=&switch=&from_ptlogin=1&src=1&update_auth=1&openapi=80901010&g_tk='.$this->getGTK($pskey[1]).'&auth_time='.time().'304&ui=E4077228-8A59-4020-A957-B5830A9509D3';
-						$data=$this->get_curl($url,$post,0,$cookie,1);
-						preg_match("/Location: (.*?)\r\n/i", $data, $match);
-						if($redirect_uri = $match[1]){
+						$data=$this->get_curl($url,$post,0,$cookie,0,1);
+						if(preg_match("/Location: (.*?)\r\n/i", $data['header'], $match)){
+							$redirect_uri = $match[1];
 							return array('code'=>0,'msg'=>'succ','uin'=>$uin,'redirect_uri'=>$redirect_uri,'crossidccode'=>$crossidccode);
 						}else{
 							return array('code'=>-1,'uin'=>$uin,'msg'=>'登录QQ成功，回调网站失败！');
@@ -420,8 +447,8 @@ class WeiboLogin
 	public function qq_connect($redirect_uri, $crossidccode){
 		if(empty($redirect_uri) || parse_url($redirect_uri, PHP_URL_HOST)!='passport.weibo.com')return array('code'=>-1,'msg'=>'回调地址错误');
 		if(empty($crossidccode))return array('code'=>-1,'msg'=>'crossidccode不能为空');
-		$data=$this->get_curl($redirect_uri,0,0,'crossidccode='.$crossidccode,1);
-		preg_match("/Location: (.*?)\r\n/i", $data, $match);
+		$data=$this->get_curl($redirect_uri,0,0,'crossidccode='.$crossidccode,0,1);
+		preg_match("/Location: (.*?)\r\n/i", $data['header'], $match);
 		if($login_url = $match[1]){
 			if(strpos($login_url, '/sso/login.php?')){
 				$result = $this->login_getcookie($login_url);
@@ -454,7 +481,7 @@ class WeiboLogin
     }
 
 
-	private function get_curl($url, $post = 0, $referer = 0, $cookie = 0, $header = 0, $split = 0)
+	private function get_curl($url, $post = 0, $referer = 0, $cookie = 0, $headers = 0, $split = 0)
 	{
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $url);
@@ -464,12 +491,16 @@ class WeiboLogin
 		$httpheader[] = "Accept-Encoding: gzip,deflate,sdch";
 		$httpheader[] = "Accept-Language: zh-CN,zh;q=0.8";
 		$httpheader[] = "Connection: close";
+		if($headers){
+			$httpheader = array_merge($httpheader, $headers);
+		}
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $httpheader);
+		//curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V6);
 		if ($post) {
 			curl_setopt($ch, CURLOPT_POST, 1);
 			curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
 		}
-		if ($header) {
+		if ($split) {
 			curl_setopt($ch, CURLOPT_HEADER, TRUE);
 		}
 		if ($cookie) {
@@ -478,7 +509,7 @@ class WeiboLogin
 		if ($referer) {
 			curl_setopt($ch, CURLOPT_REFERER, $referer);
 		}
-		curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36');
+		curl_setopt($ch, CURLOPT_USERAGENT, $this->useragent);
 		curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 		curl_setopt($ch, CURLOPT_ENCODING, "gzip");
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);

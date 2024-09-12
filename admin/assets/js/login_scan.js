@@ -7,7 +7,7 @@ function getqrcode(){
 		if(d.code ==0){
 			$('#qrimg').attr('qrid',d.qrid);
 			$('#qrimg').attr('link',d.link);
-			$('#qrimg').html('<img id="qrcodeimg" onclick="getqrcode()" src="https:'+d.imgurl+'" title="点击刷新">');
+			$('#qrimg').html('<img id="qrcodeimg" onclick="getqrcode()" src="'+d.imgurl+'" title="点击刷新">');
 			$('#login').show();
 			$('#loginmsg').html('请用最新版微博客户端扫码');
 			if( /Android|SymbianOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Windows Phone|Midp/i.test(navigator.userAgent)) {

@@ -263,11 +263,11 @@ function send_mail($to, $sub, $msg) {
 	global $conf;
 	if($conf['mail_cloud']==1){
 		$mail = new \lib\mail\Sendcloud($conf['mail_apiuser'], $conf['mail_apikey']);
-		return $mail->send($to, $sub, $msg, $conf['mail_name'], $conf['sitename']);
+		return $mail->send($to, $sub, $msg, $conf['mail_name2'], $conf['sitename']);
 	}elseif($conf['mail_cloud']==2){
 		try{
 			$mail = new \lib\mail\Aliyun($conf['mail_apiuser'], $conf['mail_apikey']);
-			return $mail->send($to, $sub, $msg, $conf['mail_name'], $conf['sitename']);
+			return $mail->send($to, $sub, $msg, $conf['mail_name2'], $conf['sitename']);
 		} catch (Exception $e) {
 			return $e->getMessage();
 		}

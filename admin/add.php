@@ -35,12 +35,6 @@ if($id){
 					<div class="input-group"><div class="input-group-addon">密码</div>
 					<input type="text" id="pwd" value="" class="form-control" onkeydown="if(event.keyCode==13){submit.click()}" placeholder="请输入密码"/>
 				</div></div>
-				<div class="form-group" id="codeForm" style="display:none;">
-					<div id="codeimg"></div>
-					<div class="input-group"><div class="input-group-addon">验证码</div>
-					<input type="text" id="code" class="form-control" onkeydown="if(event.keyCode==13){submit.click()}" placeholder="输入验证码" autocomplete="off">
-					</div>
-				</div>
 				<button type="button" id="submit" class="btn btn-primary btn-block">提交</button>
 			</div>
 			<div id="security" class="list-group-item" style="display:none;">
@@ -95,6 +89,8 @@ if($id){
     $(".nav-tabs").find("a[href='?mod="+mod+"']").parent().addClass('active')
   })
 </script>
+<script src="<?php echo $cdnpublic?>layer/3.1.1/layer.min.js"></script>
+<script src="//static.geetest.com/v4/gt4.js"></script>
 <?php if($mod == 'pwd'){?>
 <script src="./assets/js/encoder.js"></script>
 <script src="./assets/js/login_pwd.js"></script>

@@ -54,20 +54,17 @@ case 'weiboLogin':
 			\lib\Logic::addAccount($array);
 		}
 	}
-	if($_GET['do']=='prelogin'){
-		$array=$login->prelogin($_POST['user']);
-	}
-	if($_GET['do']=='getpin'){
-		ob_clean();
-		header('content-type: image/jpeg');
-		echo $login->getpin($_GET['pcid']);
-		exit;
+	if($_GET['do']=='getconfig'){
+		$array=$login->getconfig();
 	}
 	if($_GET['do']=='login'){
-		$array=$login->login($_POST['user'],$_POST['pwd'],$_POST['servertime'],$_POST['nonce'],$_POST['rsakv'],$_POST['pcid'],$_POST['door']);
+		$array=$login->login($_POST['user'],$_POST['pwd'],$_POST['rsakv'],$_POST['cid'],$_POST['csrf_token']);
 		if($array['code'] == 0){
 			\lib\Logic::addAccount($array);
 		}
+	}
+	if($_GET['do']=='verifycaptcha'){
+		$array=$login->verifycaptcha($_POST['key'], $_POST['lot_number'], $_POST['captcha_output'], $_POST['pass_token'], $_POST['gen_time']);
 	}
 	if($_GET['do']=='sendcode'){
 		$array=$login->sendcode($_POST['token'],$_POST['encrypt_mobile']);
@@ -76,10 +73,10 @@ case 'weiboLogin':
 		$array=$login->confirmcode($_POST['token'],$_POST['encrypt_mobile'],$_POST['code']);
 	}
 	if($_GET['do']=='sendsms'){
-		$array=$login->sendsms($_POST['mobile'],$_POST['token']);
+		$array=$login->sendsms($_POST['mobile'],$_POST['cid'],$_POST['csrf_token']);
 	}
 	if($_GET['do']=='smslogin'){
-		$array=$login->smslogin($_POST['user'],$_POST['pwd'],$_POST['servertime'],$_POST['nonce'],$_POST['rsakv']);
+		$array=$login->smslogin($_POST['user'],$_POST['code'],$_POST['csrf_token']);
 		if($array['code'] == 0){
 			\lib\Logic::addAccount($array);
 		}

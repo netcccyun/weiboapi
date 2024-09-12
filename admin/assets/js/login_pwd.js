@@ -2,8 +2,9 @@ var comm_data = {
 	servertime:'',
 	nonce:'',
 	rsakv:'',
-	pcid:'',
-	pubkey:''
+	pubkey:'',
+	cid:'',
+	csrf_token:'',
 }
 var ajax={
 	get: function(url, dataType, callback) {
@@ -68,89 +69,102 @@ function invokeSettime(obj){
 function trim(str){ //去掉头尾空格
 	return str.replace(/(^\s*)|(\s*$)/g, "");
 }
-function getpwd(pwd, servertime){
-	var f = new sinaSSOEncoder.RSAKey();
-    f.setPublic(comm_data.pubkey, "10001");
-    res = f.encrypt([servertime, comm_data.nonce].join("\t") + "\n" + pwd);
-	return res;
+function encryptpwd(pwd){
+	return SinaEncrypt("".concat([comm_data.servertime,comm_data.nonce].join("\t"), "\n").concat(pwd), comm_data.pubkey);
 }
-function prelogin(user,pwd){
-	$('#load').html('登录中，请稍候...');
-	var getvcurl="ajax.php?act=weiboLogin&do=prelogin";
-	ajax.post(getvcurl, {user:user}, 'json', function(d) {
+function getconfig(){
+	var ii = layer.load(2, {shade: [0.1,'#fff']});
+	var getvcurl="ajax.php?act=weiboLogin&do=getconfig";
+	ajax.get(getvcurl, 'json', function(d) {
+		layer.close(ii);
 		if(d.code ==0){
 			var data = d.data;
 			comm_data.servertime = data.servertime;
 			comm_data.nonce = data.nonce;
 			comm_data.rsakv = data.rsakv;
-			comm_data.pcid = data.pcid;
 			comm_data.pubkey = data.pubkey;
-			if(data.showpin == 1){
-				getpin(data.pcid);
-			}else{
-				login(user,pwd,'','');
-			}
+			comm_data.csrf_token = d.csrf_token;
 		}else{
-			$('#load').html(d.msg);
-			$('#codeForm').hide();
-			alert(d.msg);
+			layer.alert(d.msg, {icon: 2});
 		}
 	});
 }
-function getpin(pcid){
-	$('#codeimg').html('<img onclick="this.src=\'ajax.php?act=weiboLogin&do=getpin&pcid='+pcid+'&r=\'+Math.random();" src="ajax.php?act=weiboLogin&do=getpin&pcid='+pcid+'&r='+Math.random(1)+'" title="点击刷新">');
-	$('#submit').attr('do','code');
-	$('#code').val("");
-	$('#codeForm').show();
-}
-function login(user,pwd,pcid,vcode){
-	$('#load').html('正在登录，请稍等...');
-	var servertime = parseInt(new Date().getTime() / 1e3);
-	var pwd = getpwd(pwd, servertime);
+function login(user,pwd){
+	var ii = layer.msg('正在登录，请稍候...', {icon: 16,shade: 0.5,time: 15000});
+	var encpwd = encryptpwd(pwd);
 	var loginurl="ajax.php?act=weiboLogin&do=login&r="+Math.random(1);
-	ajax.post(loginurl, {user:user, pwd:pwd, servertime:servertime, nonce:comm_data.nonce, rsakv:comm_data.rsakv, pcid:pcid, door:vcode}, 'json', function(d) {
+	ajax.post(loginurl, {user:user, pwd:encpwd, rsakv:comm_data.rsakv, cid:comm_data.cid, csrf_token:comm_data.csrf_token}, 'json', function(d) {
+		layer.close(ii);
 		if(d.code ==0){
 			$('#login').hide();
-			$('#codeForm').hide();
 			$('#submit').hide();
 			$('#security').hide();
 			$('#submit2').hide();
 			showresult(d);
 		}else if(d.code ==1){
+			comm_data.cid = '';
 			$('#load').html("您已开启登录保护，请验证手机后登录："+d.mobile);
+			$('#load').show();
 			$('#submit').hide();
-			$('#codeForm').hide();
 			$('#code').val("");
 			$('#security').show();
 			$('#security').attr('token',d.token);
 			$('#security').attr('encrypt_mobile',d.encrypt_mobile);
 		}else if(d.code ==2){
-			$('#load').html(d.msg);
-			getpin(comm_data.pcid);
+			comm_data.cid = d.cid;
+			initGeetest4({
+				captchaId: '8b4a2bef633eb0264367b3ba9fa1dd3d',
+				product: 'bind',
+				hideSuccess: true
+			},function (captcha) {
+				captcha.onReady(function(){
+					captcha.showCaptcha();
+				}).onSuccess(function(){
+					var result = captcha.getValidate();
+					if (!result) {
+						layer.closeAll();
+						return alert('请先完成验证');
+					}
+					var verifyurl="ajax.php?act=weiboLogin&do=verifycaptcha&r="+Math.random(1);
+					ajax.post(verifyurl, {key:comm_data.cid, lot_number:result.lot_number, captcha_output:result.captcha_output, pass_token:result.pass_token, gen_time:result.gen_time}, 'json', function(d) {
+						if(d.code ==0){
+							login(user,pwd)
+						}else{
+							layer.alert(d.msg, {icon: 2});
+						}
+					});
+				}).onError(function(){
+					alert('验证码加载失败，请刷新页面重试');
+				})
+			});
 		}else{
+			comm_data.cid = '';
 			$('#load').html(d.msg);
+			$('#load').show();
 			$('#submit').attr('do','submit');
-			$('#codeForm').hide();
 			$('#login').show();
 		}
 	});
 }
 function sendcode(token,encrypt_mobile){
+	var ii = layer.load(2, {shade: [0.1,'#fff']});
 	var loginurl="ajax.php?act=weiboLogin&do=sendcode&r="+Math.random(1);
 	ajax.post(loginurl, {token:token, encrypt_mobile:encrypt_mobile}, 'json', function(d) {
+		layer.close(ii);
 		if(d.code ==0){
 			$('#smscode').focus();
 			invokeSettime("#sendcode");
-			alert('验证码发送成功，请查收');
+			layer.alert('验证码发送成功，请查收', {icon: 1}, function(){ layer.closeAll();$('#smscode').focus() });
 		}else{
-			alert(d.msg);
+			layer.alert(d.msg, {icon: 2});
 		}
 	});
 }
 function confirmcode(token,encrypt_mobile,code){
-	$('#load').html('正在验证，请稍等...');
+	var ii = layer.msg('正在验证，请稍等...', {icon: 16,shade: 0.5,time: 15000});
 	var loginurl="ajax.php?act=weiboLogin&do=confirmcode&r="+Math.random(1);
 	ajax.post(loginurl, {token:token, encrypt_mobile:encrypt_mobile, code:code}, 'json', function(d) {
+		layer.close(ii);
 		if(d.code ==0){
 			$('#login').hide();
 			$('#submit').hide();
@@ -158,13 +172,14 @@ function confirmcode(token,encrypt_mobile,code){
 			$('#submit2').hide();
 			showresult(d);
 		}else{
-			$('#load').html(d.msg);
+			layer.alert(d.msg, {icon: 2});
 			$('#login').show();
 		}
 	});
 }
 function showresult(arr){
 	$('#load').html('<font color="green"><span class="glyphicon glyphicon-ok-sign"></span></font> 微博账号添加成功！<hr/>'+decodeURIComponent(arr.nick)+'（UID：'+arr.uid+'）');
+	$('#load').show();
 }
 $(document).ready(function(){
 	$('#submit').click(function(){
@@ -175,16 +190,9 @@ $(document).ready(function(){
 			alert("请确保每项不能为空！");
 			return false;
 		}
-		$('#load').show();
 		if (self.attr("data-lock") === "true") return;
 		else self.attr("data-lock", "true");
-		if(self.attr('do') == 'code'){
-			var vcode=trim($('#code').val()),
-				pcid=comm_data.pcid;
-			login(user,pwd,pcid,vcode);
-		}else{
-			prelogin(user,pwd);
-		}
+		login(user,pwd);
 		self.attr("data-lock", "false");
 	});
 	$('#submit2').click(function(){
@@ -194,7 +202,6 @@ $(document).ready(function(){
 			alert("验证码不能为空！");
 			return false;
 		}
-		$('#load').show();
 		if (self.attr("data-lock") === "true") return;
 		else self.attr("data-lock", "true");
 		var token=$('#security').attr('token'),
@@ -204,7 +211,6 @@ $(document).ready(function(){
 	});
 	$('#sendcode').click(function(){
 		var self=$(this);
-		$('#load').show();
 		if (self.attr("data-lock") === "true") return;
 		else self.attr("data-lock", "true");
 		var token=$('#security').attr('token'),
@@ -212,4 +218,5 @@ $(document).ready(function(){
 		sendcode(token,encrypt_mobile);
 		self.attr("data-lock", "false");
 	});
+	getconfig();
 });

@@ -65,10 +65,14 @@ class WeiboTool
 		$referer = 'https://weibo.com/tv/show/'.$oid;
 		$data = $this->get_curl($url, $post, $referer, $this->cookie);
 		$arr = json_decode($data, true);
-		if(isset($arr['code']) && $arr['code']=='100000' && isset($arr['data']['Component_Play_Playinfo'])){
-			$info = $arr['data']['Component_Play_Playinfo'];
-			$result = ['title'=>$info['title'], 'author'=>$info['author'], 'author_id'=>$info['user']['id'], 'author_avatar'=>$info['avatar'], 'urls'=>$info['urls'], 'cover'=>$info['cover_image'], 'time'=>$info['real_date'], 'duration'=>$info['duration']];
-			return ['code'=>0, 'data'=>$result];
+		if(isset($arr['code']) && $arr['code']=='100000'){
+			if(isset($arr['data']['Component_Play_Playinfo'])){
+				$info = $arr['data']['Component_Play_Playinfo'];
+				$result = ['title'=>$info['title'], 'author'=>$info['author'], 'author_id'=>$info['user']['id'], 'author_avatar'=>$info['avatar'], 'urls'=>$info['urls'], 'cover'=>$info['cover_image'], 'time'=>$info['real_date'], 'duration'=>$info['duration']];
+				return ['code'=>0, 'data'=>$result];
+			}else{
+				return ['code'=>-1, 'msg'=>'解析视频失败：视频不存在'];
+			}
 		}elseif(isset($arr['msg'])){
 			return ['code'=>-1, 'msg'=>'解析视频失败：'.$arr['msg']];
 		}else{
@@ -114,7 +118,7 @@ class WeiboTool
         $arr = json_decode($data, true);
 		if(isset($arr['ret']) && $arr['ret']==true){
 			$pid = $arr['pic']['pid'];
-			return ['code'=>0, 'data'=>'https://fc.sinaimg.cn/large/'.$pid.'.jpg'];
+			return ['code'=>0, 'data'=>'https://image.baidu.com/search/down?thumburl=https://baidu.com&url=https://fc.sinaimg.cn/large/'.$pid.'.jpg'];
 		}else{
 			if($arr['errno'] == -1){
 				$this->cookiefail = true;
