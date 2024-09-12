@@ -193,14 +193,27 @@ class WeiboLogin
 			return array('code' => 0, 'cookie' => $cookie, 'wbcookie' => $wbcookie, 'uid' => $info['user']['idstr'], 'nick' => $info['user']['screen_name']);
 		}elseif($arr['retcode'] == 2071 && isset($arr['data']['location'])){
 			$protection_url = $arr['data']['location'];
+			$host = parse_url($protection_url, PHP_URL_HOST);
 			parse_str(parse_url($protection_url, PHP_URL_QUERY), $query_arr);
-			$token = $query_arr['token'];
-			$data2 = $this->get_curl($protection_url, 0, $this->referrer);
-			preg_match('!<input name="encrypt_mobile".*?value="(.*?)".*?<span>(.*?)</span>!s', $data2, $match);
-			if($match[0]){
-				return array('code' => 1, 'msg' => $arr['msg'], 'token'=>$token, 'mobile'=>$match[2], 'encrypt_mobile'=>$match[1]);
+			if($host == 'passport.weibo.cn'){
+				$token = $query_arr['id'];
+				$this->get_curl($protection_url, 0, $this->referrer);
+				$data2 = $this->get_curl('https://passport.weibo.cn/signin/secondverify/index?first_enter=1&c=', 0, $this->referrer, 'FID='.$token);
+				preg_match('!\"maskMobile\":\"(.*?)\"!s', $data2, $match);
+				if($match[0]){
+					return array('code' => 1, 'msg' => $arr['msg'], 'type'=>'1', 'token'=>$token, 'mobile'=>$match[1], 'encrypt_mobile'=>$match[1]);
+				}else{
+					return array('code' => -1, 'msg' => '手机验证信息获取失败 '.$arr['msg']);
+				}
 			}else{
-				return array('code' => -1, 'msg' => '手机验证信息获取失败 '.$arr['msg']);
+				$token = $query_arr['token'];
+				$data2 = $this->get_curl($protection_url, 0, $this->referrer);
+				preg_match('!<input name="encrypt_mobile".*?value="(.*?)".*?<span>(.*?)</span>!s', $data2, $match);
+				if($match[0]){
+					return array('code' => 1, 'msg' => $arr['msg'], 'type'=>'0', 'token'=>$token, 'mobile'=>$match[2], 'encrypt_mobile'=>$match[1]);
+				}else{
+					return array('code' => -1, 'msg' => '手机验证信息获取失败 '.$arr['msg']);
+				}
 			}
 		}elseif($arr['retcode'] == 4049 || $arr['retcode'] == 2120){
 			return array('code' => 2, 'msg' => $arr['msg'], 'cid' => $arr['data']['mfa_id']);
@@ -230,35 +243,66 @@ class WeiboLogin
 	}
 
 	//登录异常-发送手机验证码
-	public function sendcode($token, $encrypt_mobile)
+	public function sendcode($type, $token, $encrypt_mobile)
 	{
-		$url = 'https://passport.weibo.com/protection/mobile/sendcode?token='.$token;
-		$post = 'encrypt_mobile='.$encrypt_mobile;
-		$data = $this->get_curl($url, $post, $this->referrer);
-		$arr = json_decode($data, true);
-		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
-			return array('code' => 0, 'msg' => 'succ');
-		} elseif (isset($arr['msg'])) {
-			return array('code' => -1, 'msg' => $arr['msg']);
-		} else {
-			return array('code' => -1, 'msg' => '获取验证码失败，原因未知');
+		if($type == '1'){
+			$url = 'https://passport.weibo.cn/signin/secondverify/ajsend?number=1&mask_mobile='.$encrypt_mobile.'&msg_type=sms';
+			$referrer = 'https://passport.weibo.cn/signin/secondverify/index?first_enter=1&c=';
+			$cookie = 'FID='.$token;
+			$data = $this->get_curl($url, 0, $referrer, $cookie);
+			$arr = json_decode($data, true);
+			if (isset($arr['retcode']) && $arr['retcode'] == 100000) {
+				return array('code' => 0, 'msg' => 'succ');
+			} elseif (isset($arr['msg'])) {
+				return array('code' => -1, 'msg' => $arr['msg']);
+			} else {
+				return array('code' => -1, 'msg' => '获取验证码失败，原因未知');
+			}
+		}else{
+			$url = 'https://passport.weibo.com/protection/mobile/sendcode?token='.$token;
+			$post = 'encrypt_mobile='.$encrypt_mobile;
+			$data = $this->get_curl($url, $post, $this->referrer);
+			$arr = json_decode($data, true);
+			if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
+				return array('code' => 0, 'msg' => 'succ');
+			} elseif (isset($arr['msg'])) {
+				return array('code' => -1, 'msg' => $arr['msg']);
+			} else {
+				return array('code' => -1, 'msg' => '获取验证码失败，原因未知');
+			}
 		}
 	}
 
 	//登录异常-提交手机验证码
-	public function confirmcode($token, $encrypt_mobile, $code)
+	public function confirmcode($type, $token, $encrypt_mobile, $code)
 	{
-		$url = 'https://passport.weibo.com/protection/mobile/confirm?token='.$token;
-		$post = 'encrypt_mobile='.$encrypt_mobile.'&code='.$code;
-		$data = $this->get_curl($url, $post, $this->referrer);
-		$arr = json_decode($data, true);
-		if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
-			$result = $this->login_getcookie($arr['data']['redirect_url']);
-			return $result;
-		} elseif (isset($arr['msg'])) {
-			return array('code' => -1, 'msg' => $arr['msg']);
-		} else {
-			return array('code' => -1, 'msg' => '验证失败，原因未知');
+		if($type == '1'){
+			$url = 'https://passport.weibo.cn/signin/secondverify/ajcheck?msg_type=sms&code='.$code;
+			$referrer = 'https://passport.weibo.cn/signin/secondverify/check';
+			$cookie = 'FID='.$token;
+			$data = $this->get_curl($url, 0, $referrer, $cookie);
+			$arr = json_decode($data, true);
+			if (isset($arr['retcode']) && $arr['retcode'] == 100000) {
+				$result = $this->login_getcookie($arr['data']['url']);
+				return $result;
+			} elseif (isset($arr['msg'])) {
+				return array('code' => -1, 'msg' => $arr['msg']);
+			} else {
+				return array('code' => -1, 'msg' => '验证失败，原因未知');
+			}
+		}else{
+			$url = 'https://passport.weibo.com/protection/mobile/confirm?token='.$token;
+			$post = 'encrypt_mobile='.$encrypt_mobile.'&code='.$code;
+			$data = $this->get_curl($url, $post, $this->referrer);
+			$arr = json_decode($data, true);
+			if (isset($arr['retcode']) && $arr['retcode'] == 20000000) {
+				$result = $this->login_getcookie($arr['data']['redirect_url']);
+				return $result;
+			} elseif (isset($arr['msg'])) {
+				return array('code' => -1, 'msg' => $arr['msg']);
+			} else {
+				return array('code' => -1, 'msg' => '验证失败，原因未知');
+			}
 		}
 	}
 

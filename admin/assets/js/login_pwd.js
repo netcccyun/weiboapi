@@ -108,6 +108,7 @@ function login(user,pwd){
 			$('#submit').hide();
 			$('#code').val("");
 			$('#security').show();
+			$('#security').attr('type',d.type);
 			$('#security').attr('token',d.token);
 			$('#security').attr('encrypt_mobile',d.encrypt_mobile);
 		}else if(d.code ==2){
@@ -146,10 +147,10 @@ function login(user,pwd){
 		}
 	});
 }
-function sendcode(token,encrypt_mobile){
+function sendcode(type,token,encrypt_mobile){
 	var ii = layer.load(2, {shade: [0.1,'#fff']});
 	var loginurl="ajax.php?act=weiboLogin&do=sendcode&r="+Math.random(1);
-	ajax.post(loginurl, {token:token, encrypt_mobile:encrypt_mobile}, 'json', function(d) {
+	ajax.post(loginurl, {type:type, token:token, encrypt_mobile:encrypt_mobile}, 'json', function(d) {
 		layer.close(ii);
 		if(d.code ==0){
 			$('#smscode').focus();
@@ -160,10 +161,10 @@ function sendcode(token,encrypt_mobile){
 		}
 	});
 }
-function confirmcode(token,encrypt_mobile,code){
+function confirmcode(type,token,encrypt_mobile,code){
 	var ii = layer.msg('正在验证，请稍等...', {icon: 16,shade: 0.5,time: 15000});
 	var loginurl="ajax.php?act=weiboLogin&do=confirmcode&r="+Math.random(1);
-	ajax.post(loginurl, {token:token, encrypt_mobile:encrypt_mobile, code:code}, 'json', function(d) {
+	ajax.post(loginurl, {type:type, token:token, encrypt_mobile:encrypt_mobile, code:code}, 'json', function(d) {
 		layer.close(ii);
 		if(d.code ==0){
 			$('#login').hide();
@@ -204,18 +205,20 @@ $(document).ready(function(){
 		}
 		if (self.attr("data-lock") === "true") return;
 		else self.attr("data-lock", "true");
-		var token=$('#security').attr('token'),
+		var type=$('#security').attr('type'),
+			token=$('#security').attr('token'),
 			encrypt_mobile=$('#security').attr('encrypt_mobile');
-		confirmcode(token,encrypt_mobile,code);
+		confirmcode(type,token,encrypt_mobile,code);
 		self.attr("data-lock", "false");
 	});
 	$('#sendcode').click(function(){
 		var self=$(this);
 		if (self.attr("data-lock") === "true") return;
 		else self.attr("data-lock", "true");
-		var token=$('#security').attr('token'),
+		var type=$('#security').attr('type'),
+			token=$('#security').attr('token'),
 			encrypt_mobile=$('#security').attr('encrypt_mobile');
-		sendcode(token,encrypt_mobile);
+		sendcode(type,token,encrypt_mobile);
 		self.attr("data-lock", "false");
 	});
 	getconfig();

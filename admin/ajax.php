@@ -67,10 +67,10 @@ case 'weiboLogin':
 		$array=$login->verifycaptcha($_POST['key'], $_POST['lot_number'], $_POST['captcha_output'], $_POST['pass_token'], $_POST['gen_time']);
 	}
 	if($_GET['do']=='sendcode'){
-		$array=$login->sendcode($_POST['token'],$_POST['encrypt_mobile']);
+		$array=$login->sendcode($_POST['type'],$_POST['token'],$_POST['encrypt_mobile']);
 	}
 	if($_GET['do']=='confirmcode'){
-		$array=$login->confirmcode($_POST['token'],$_POST['encrypt_mobile'],$_POST['code']);
+		$array=$login->confirmcode($_POST['type'],$_POST['token'],$_POST['encrypt_mobile'],$_POST['code']);
 	}
 	if($_GET['do']=='sendsms'){
 		$array=$login->sendsms($_POST['mobile'],$_POST['cid'],$_POST['csrf_token']);
